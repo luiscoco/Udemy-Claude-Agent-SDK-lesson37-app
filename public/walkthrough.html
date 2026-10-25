@@ -1,0 +1,64 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Agent SDK LESSON 37 · How the app &lt;em&gt;was built.&lt;/em&gt;</title><link rel="stylesheet" href="/style.css"><link rel="stylesheet" href="/code-highlighting.css"></head><body><main><div class="brand"><a href="/">How <span>Claude Agent SDK</span> Works</a><span class="badge">LESSON 37 / TODO TRACKING</span></div><header class="hero"><div><div class="eyebrow">PLAN · WORK · VERIFY</div><h1>How the app <em>was built.</em></h1><p class="lead">Every architecture step has source-linked coloured code.</p></div><img src="/astronaut.png" alt="Course astronaut mascot"></header><nav class="nav" aria-label="Application sections"><a href="/">Application lab</a><a href="/learn.html">What you will learn</a><a href="/run.html">How to run</a><a href="/architecture.html">Architecture & workflow</a><a href="/walkthrough.html" aria-current="page">Code walkthrough</a><button id="theme" type="button">Dark mode</button></nav><div class="grid"><article class="card"><span class="number">01</span><h3>Tool availability</h3><p>The bundled Claude Code runtime selects task-tool defaults by model. This app explicitly opts in and displays actual initialized tools. Native Task tools and legacy TodoWrite are separate verified experiments.</p></article><article class="card"><span class="number">02</span><h3>Progress is reported work</h3><p>A completed task means the agent successfully updated its list. It is not proof that the underlying work is correct. Inspect independently read files, native feedback and application-specific checks.</p></article><article class="card"><span class="number">03</span><h3>Requests versus confirmed state</h3><p>The browser receives both requests and results. This tracker commits status changes after successful correlated results, improving on request-only progress displays when tools can fail or be denied.</p></article><article class="card"><span class="number">04</span><h3>Task IDs and aliases</h3><p>TaskCreate assigns IDs in tool_use_result.task.id. Raw model input can use taskId, id or task_id and activeForm or active_form. Unknown IDs are not silently synthesized.</p></article><article class="card"><span class="number">05</span><h3>Legacy list semantics</h3><p>TodoWrite replaces an entire list. It does not supply TaskCreate IDs. This interface labels its own display keys legacy-row-N; they are explicitly local presentation keys.</p></article><article class="card"><span class="number">06</span><h3>Lifecycle and costs</h3><p>TaskCreate, TaskUpdate, TaskList and TaskGet are planning tools, distinct from background-task system notifications. This app launches no subagents or background work. Queries are bounded by turns, a six-minute host timeout and a $0.60 SDK budget threshold, which is not a prepaid cap.</p></article></div><section class="step workflow-step" id="workflow-step-01"><span class="number">01</span><h3>1. Validate the selected experiment</h3><p>Accept a named classroom experiment. Browser input cannot replace the tools, prompts or filesystem scope.</p><p class="source">Source: src/modes.ts · lines 3–9 · selected source; surrounding code omitted</p><pre><code class="language-typescript">export function validateConfig(value: unknown): RunConfig {
+  const c = value as Record&lt;string, unknown&gt;;
+  if (!c || typeof c !== &quot;object&quot; || !MODES.includes(c.mode as never))
+    throw new Error(&quot;Choose a listed todo experiment.&quot;);
+  if (Object.keys(c).some((k) =&gt; k !== &quot;mode&quot;))
+    throw new Error(&quot;Only the classroom mode can be configured here.&quot;);
+  return { mode: c.mode as RunConfig[&quot;mode&quot;] };</code></pre></section><section class="step workflow-step" id="workflow-step-02"><span class="number">02</span><h3>2. Opt in to native task tools</h3><p>Enable todo tools for the SDK subprocess while preserving inherited environment values. The legacy experiment selects TodoWrite instead.</p><p class="source">Source: src/agent.ts · lines 119–122 · selected source; surrounding code omitted</p><pre><code class="language-typescript">CLAUDE_CODE_ENABLE_TODO_TOOLS: &quot;1&quot;,
+      CLAUDE_CODE_ENABLE_TASKS: c.mode === &quot;legacy&quot; ? &quot;0&quot; : &quot;1&quot;,
+    },
+    hooks: {</code></pre></section><section class="step workflow-step" id="workflow-step-03"><span class="number">03</span><h3>3. Start the actual SDK query</h3><p>A real query owns planning and execution. Drain the loop so the final result and any following exception are observed.</p><p class="source">Source: src/agent.ts · lines 189–191 · selected source; surrounding code omitted</p><pre><code class="language-typescript">const q = query({ prompt: PROMPTS[c.mode], options });
+      for await (const message of q) {
+        if (message.type === &quot;system&quot; &amp;&amp; message.subtype === &quot;init&quot;) {</code></pre></section><section class="step workflow-step" id="workflow-step-04"><span class="number">04</span><h3>4. Inspect actual tool availability</h3><p>SDK initialization reports the actual runtime tool list. Do not infer availability solely from the configured model name.</p><p class="source">Source: src/agent.ts · lines 192–194 · selected source; surrounding code omitted</p><pre><code class="language-typescript">discoveredTools = message.tools;
+          emit({ type: &quot;discovery&quot;, tools: discoveredTools });
+        } else if (message.type === &quot;assistant&quot;) {</code></pre></section><section class="step workflow-step" id="workflow-step-05"><span class="number">05</span><h3>5. Receive structured task requests</h3><p>Assistant tool_use blocks contain task requests. Record them before tracking their eventual correlated result.</p><p class="source">Source: src/agent.ts · lines 196–200 · selected source; surrounding code omitted</p><pre><code class="language-typescript">if (block.type === &quot;tool_use&quot;) {
+              observe(&quot;tool-request&quot;, block);
+              tracker.request(block);
+              progress();
+            } else if (block.type === &quot;text&quot;)</code></pre></section><section class="step workflow-step" id="workflow-step-06"><span class="number">06</span><h3>6. Keep requests provisional</h3><p>Store each task request once by tool-use ID. A request alone does not add a confirmed task or change its status.</p><p class="source">Source: src/tracker.ts · lines 18–24 · selected source; surrounding code omitted</p><pre><code class="language-typescript">request(call: Call) {
+    if (![&quot;TaskCreate&quot;, &quot;TaskUpdate&quot;, &quot;TodoWrite&quot;].includes(call.name)) return;
+    if (this.seenCalls.has(call.id)) return;
+    this.seenCalls.add(call.id);
+    this.calls.set(call.id, structuredClone(call));
+    // Requests remain provisional until their correlated result succeeds.
+  }</code></pre></section><section class="step workflow-step" id="workflow-step-07"><span class="number">07</span><h3>7. Correlate actual tool results</h3><p>Pair user tool_result.tool_use_id with the earlier tool call. Read the structured tool_use_result object carried on that same user message.</p><p class="source">Source: src/agent.ts · lines 216–218 · selected source; surrounding code omitted</p><pre><code class="language-typescript">tracker.result(block, message.tool_use_result);
+            progress();
+          }</code></pre></section><section class="step workflow-step" id="workflow-step-08"><span class="number">08</span><h3>8. Read assigned task IDs</h3><p>TaskCreate results supply task.id. A missing ID does not create a synthetic Task-system identifier.</p><p class="source">Source: src/tracker.ts · lines 42–50 · selected source; surrounding code omitted</p><pre><code class="language-typescript">const id = text(object(out.task).id);
+      const subject = text(input.subject);
+      if (!id || !subject) return;
+      this.tasks.set(id, {
+        id,
+        subject,
+        status: &quot;pending&quot;,
+        activeForm: text(input.activeForm ?? input.active_form),
+      });</code></pre></section><section class="step workflow-step" id="workflow-step-09"><span class="number">09</span><h3>9. Confirm lifecycle updates</h3><p>Accept raw identifier aliases, locate a known task and reject explicit failed execution. Apply updates only after a successful result.</p><p class="source">Source: src/tracker.ts · lines 57–61 · selected source; surrounding code omitted</p><pre><code class="language-typescript">const id = text(input.taskId ?? input.id ?? input.task_id);
+      if (!id || !this.tasks.has(id)) return;
+      // An explicit false success response is not an accepted update.
+      if (out.success === false) return;
+      if (input.status === &quot;deleted&quot;) {</code></pre></section><section class="step workflow-step" id="workflow-step-10"><span class="number">10</span><h3>10. Remove an obsolete task</h3><p>Successful deletion removes the task from the map and progress denominator. Keep the confirmed deletion in history.</p><p class="source">Source: src/tracker.ts · lines 61–69 · selected source; surrounding code omitted</p><pre><code class="language-typescript">if (input.status === &quot;deleted&quot;) {
+        this.tasks.delete(id);
+        Object.assign(change, {
+          outcome: &quot;confirmed&quot;,
+          taskId: id,
+          status: &quot;deleted&quot;,
+        });
+        return;
+      }</code></pre></section><section class="step workflow-step" id="workflow-step-11"><span class="number">11</span><h3>11. Count confirmed progress</h3><p>Count completed and active tasks from the confirmed snapshot. Pending tool requests are reported separately.</p><p class="source">Source: src/tracker.ts · lines 106–110 · selected source; surrounding code omitted</p><pre><code class="language-typescript">completed: tasks.filter((t) =&gt; t.status === &quot;completed&quot;).length,
+      inProgress: tasks.filter((t) =&gt; t.status === &quot;in_progress&quot;).length,
+      pendingCalls: this.calls.size,
+      changes: this.changes.map((c) =&gt; ({ ...c })),
+    };</code></pre></section><section class="step workflow-step" id="workflow-step-12"><span class="number">12</span><h3>12. Render active work labels</h3><p>Show activeForm only while in_progress; use the subject otherwise. Build browser text nodes so task labels cannot inject HTML.</p><p class="source">Source: src/client.ts · lines 25–31 · selected source; surrounding code omitted</p><pre><code class="language-typescript">const label =
+      t.status === &quot;in_progress&quot; &amp;&amp; t.activeForm ? t.activeForm : t.subject;
+    item.textContent = `${icon} ${label}`;
+    const meta = document.createElement(&quot;p&quot;);
+    meta.className = &quot;meta&quot;;
+    meta.textContent = `Task ${t.id} · ${t.status}`;
+    item.append(meta);</code></pre></section><section class="step workflow-step" id="workflow-step-13"><span class="number">13</span><h3>13. Inspect actual work and cleanup</h3><p>Read the actual bounded website files and fixture before emitting evidence. The finally block cleans only the verified temporary run directory.</p><p class="source">Source: src/agent.ts · lines 240–248 · selected source; surrounding code omitted</p><pre><code class="language-typescript">const inspected = await workspace.inspect();
+    const evidence: Evidence = {
+      mode: c.mode,
+      progress: tracker.snapshot(),
+      snapshots,
+      discoveredTools,
+      result,
+      exception,
+      nativeErrors,</code></pre></section><footer>CLAUDE AGENT SDK · LESSON 37 · TASKS · PROGRESS · EVIDENCE<br>TypeScript · local runtime · API key stays on the server</footer></main><script src="/navigation.js"></script><script src="/prism.js"></script><script src="/prism-markup.min.js"></script><script src="/prism-yaml.min.js"></script><script src="/prism-markdown.min.js"></script><script src="/prism-python.min.js"></script><script src="/code-highlighting.js"></script><script src="/marked.umd.js"></script><script src="/purify.min.js"></script></body></html>

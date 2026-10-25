@@ -1,0 +1,273 @@
+{
+  "lanes": [
+    "Student UI",
+    "TypeScript host",
+    "Agent SDK Query",
+    "TaskTracker",
+    "Website files"
+  ],
+  "arrows": [
+    [
+      0,
+      1,
+      "1. Validate the selected experiment"
+    ],
+    [
+      1,
+      2,
+      "2. Opt in to native task tools"
+    ],
+    [
+      1,
+      2,
+      "3. Start the actual SDK query"
+    ],
+    [
+      2,
+      1,
+      "4. Inspect actual tool availability"
+    ],
+    [
+      2,
+      1,
+      "5. Receive structured task requests"
+    ],
+    [
+      1,
+      3,
+      "6. Keep requests provisional"
+    ],
+    [
+      2,
+      3,
+      "7. Correlate actual tool results"
+    ],
+    [
+      3,
+      3,
+      "8. Read assigned task IDs"
+    ],
+    [
+      3,
+      3,
+      "9. Confirm lifecycle updates"
+    ],
+    [
+      3,
+      1,
+      "10. Remove an obsolete task"
+    ],
+    [
+      3,
+      1,
+      "11. Count confirmed progress"
+    ],
+    [
+      1,
+      0,
+      "12. Render active work labels"
+    ],
+    [
+      4,
+      1,
+      "13. Inspect actual work and cleanup"
+    ]
+  ],
+  "steps": [
+    {
+      "number": 1,
+      "title": "Validate the selected experiment",
+      "source": "src/modes.ts",
+      "code": "export function validateConfig(value: unknown): RunConfig {\n  const c = value as Record<string, unknown>;\n  if (!c || typeof c !== \"object\" || !MODES.includes(c.mode as never))\n    throw new Error(\"Choose a listed todo experiment.\");\n  if (Object.keys(c).some((k) => k !== \"mode\"))\n    throw new Error(\"Only the classroom mode can be configured here.\");\n  return { mode: c.mode as RunConfig[\"mode\"] };",
+      "language": "typescript",
+      "explanation": "Accept a named classroom experiment. Browser input cannot replace the tools, prompts or filesystem scope.",
+      "firstLine": 3,
+      "lastLine": 9,
+      "anchors": [
+        "export function validateConfig(value: unknown): RunConfig {"
+      ],
+      "sourceSHA256": "9022f20afb031f7447ceb2d6e14614553beac4a028ff378b1456ba408be55792",
+      "narration": "Step 1. Accept a named classroom experiment. Browser input cannot replace the tools, prompts or filesystem scope. This source excerpt shows the corresponding application statement."
+    },
+    {
+      "number": 2,
+      "title": "Opt in to native task tools",
+      "source": "src/agent.ts",
+      "code": "CLAUDE_CODE_ENABLE_TODO_TOOLS: \"1\",\n      CLAUDE_CODE_ENABLE_TASKS: c.mode === \"legacy\" ? \"0\" : \"1\",\n    },\n    hooks: {",
+      "language": "typescript",
+      "explanation": "Enable todo tools for the SDK subprocess while preserving inherited environment values. The legacy experiment selects TodoWrite instead.",
+      "firstLine": 119,
+      "lastLine": 122,
+      "anchors": [
+        "CLAUDE_CODE_ENABLE_TODO_TOOLS: \"1\","
+      ],
+      "sourceSHA256": "c3e454f9aa02da0f6afe4682c576ed336de05d5d62e1ada6ee538d1b6722575f",
+      "narration": "Step 2. Enable todo tools for the SDK subprocess while preserving inherited environment values. The legacy experiment selects TodoWrite instead. This source excerpt shows the corresponding application statement."
+    },
+    {
+      "number": 3,
+      "title": "Start the actual SDK query",
+      "source": "src/agent.ts",
+      "code": "const q = query({ prompt: PROMPTS[c.mode], options });\n      for await (const message of q) {\n        if (message.type === \"system\" && message.subtype === \"init\") {",
+      "language": "typescript",
+      "explanation": "A real query owns planning and execution. Drain the loop so the final result and any following exception are observed.",
+      "firstLine": 189,
+      "lastLine": 191,
+      "anchors": [
+        "const q = query({ prompt: PROMPTS[c.mode], options });"
+      ],
+      "sourceSHA256": "c3e454f9aa02da0f6afe4682c576ed336de05d5d62e1ada6ee538d1b6722575f",
+      "narration": "Step 3. A real query owns planning and execution. Drain the loop so the final result and any following exception are observed. This source excerpt shows the corresponding application statement."
+    },
+    {
+      "number": 4,
+      "title": "Inspect actual tool availability",
+      "source": "src/agent.ts",
+      "code": "discoveredTools = message.tools;\n          emit({ type: \"discovery\", tools: discoveredTools });\n        } else if (message.type === \"assistant\") {",
+      "language": "typescript",
+      "explanation": "SDK initialization reports the actual runtime tool list. Do not infer availability solely from the configured model name.",
+      "firstLine": 192,
+      "lastLine": 194,
+      "anchors": [
+        "discoveredTools = message.tools;"
+      ],
+      "sourceSHA256": "c3e454f9aa02da0f6afe4682c576ed336de05d5d62e1ada6ee538d1b6722575f",
+      "narration": "Step 4. SDK initialization reports the actual runtime tool list. Do not infer availability solely from the configured model name. This source excerpt shows the corresponding application statement."
+    },
+    {
+      "number": 5,
+      "title": "Receive structured task requests",
+      "source": "src/agent.ts",
+      "code": "if (block.type === \"tool_use\") {\n              observe(\"tool-request\", block);\n              tracker.request(block);\n              progress();\n            } else if (block.type === \"text\")",
+      "language": "typescript",
+      "explanation": "Assistant tool_use blocks contain task requests. Record them before tracking their eventual correlated result.",
+      "firstLine": 196,
+      "lastLine": 200,
+      "anchors": [
+        "if (block.type === \"tool_use\") {"
+      ],
+      "sourceSHA256": "c3e454f9aa02da0f6afe4682c576ed336de05d5d62e1ada6ee538d1b6722575f",
+      "narration": "Step 5. Assistant tool_use blocks contain task requests. Record them before tracking their eventual correlated result. This source excerpt shows the corresponding application statement."
+    },
+    {
+      "number": 6,
+      "title": "Keep requests provisional",
+      "source": "src/tracker.ts",
+      "code": "request(call: Call) {\n    if (![\"TaskCreate\", \"TaskUpdate\", \"TodoWrite\"].includes(call.name)) return;\n    if (this.seenCalls.has(call.id)) return;\n    this.seenCalls.add(call.id);\n    this.calls.set(call.id, structuredClone(call));\n    // Requests remain provisional until their correlated result succeeds.\n  }",
+      "language": "typescript",
+      "explanation": "Store each task request once by tool-use ID. A request alone does not add a confirmed task or change its status.",
+      "firstLine": 18,
+      "lastLine": 24,
+      "anchors": [
+        "request(call: Call) {"
+      ],
+      "sourceSHA256": "6e540e4c72d530cd63333ca59ed172045b8b9725821a6c7438b28ece66a35737",
+      "narration": "Step 6. Store each task request once by tool-use ID. A request alone does not add a confirmed task or change its status. This source excerpt shows the corresponding application statement."
+    },
+    {
+      "number": 7,
+      "title": "Correlate actual tool results",
+      "source": "src/agent.ts",
+      "code": "tracker.result(block, message.tool_use_result);\n            progress();\n          }",
+      "language": "typescript",
+      "explanation": "Pair user tool_result.tool_use_id with the earlier tool call. Read the structured tool_use_result object carried on that same user message.",
+      "firstLine": 216,
+      "lastLine": 218,
+      "anchors": [
+        "tracker.result(block, message.tool_use_result);"
+      ],
+      "sourceSHA256": "c3e454f9aa02da0f6afe4682c576ed336de05d5d62e1ada6ee538d1b6722575f",
+      "narration": "Step 7. Pair user tool_result.tool_use_id with the earlier tool call. Read the structured tool_use_result object carried on that same user message. This source excerpt shows the corresponding application statement."
+    },
+    {
+      "number": 8,
+      "title": "Read assigned task IDs",
+      "source": "src/tracker.ts",
+      "code": "const id = text(object(out.task).id);\n      const subject = text(input.subject);\n      if (!id || !subject) return;\n      this.tasks.set(id, {\n        id,\n        subject,\n        status: \"pending\",\n        activeForm: text(input.activeForm ?? input.active_form),\n      });",
+      "language": "typescript",
+      "explanation": "TaskCreate results supply task.id. A missing ID does not create a synthetic Task-system identifier.",
+      "firstLine": 42,
+      "lastLine": 50,
+      "anchors": [
+        "const id = text(object(out.task).id);"
+      ],
+      "sourceSHA256": "6e540e4c72d530cd63333ca59ed172045b8b9725821a6c7438b28ece66a35737",
+      "narration": "Step 8. TaskCreate results supply task.id. A missing ID does not create a synthetic Task-system identifier. This source excerpt shows the corresponding application statement."
+    },
+    {
+      "number": 9,
+      "title": "Confirm lifecycle updates",
+      "source": "src/tracker.ts",
+      "code": "const id = text(input.taskId ?? input.id ?? input.task_id);\n      if (!id || !this.tasks.has(id)) return;\n      // An explicit false success response is not an accepted update.\n      if (out.success === false) return;\n      if (input.status === \"deleted\") {",
+      "language": "typescript",
+      "explanation": "Accept raw identifier aliases, locate a known task and reject explicit failed execution. Apply updates only after a successful result.",
+      "firstLine": 57,
+      "lastLine": 61,
+      "anchors": [
+        "const id = text(input.taskId ?? input.id ?? input.task_id);"
+      ],
+      "sourceSHA256": "6e540e4c72d530cd63333ca59ed172045b8b9725821a6c7438b28ece66a35737",
+      "narration": "Step 9. Accept raw identifier aliases, locate a known task and reject explicit failed execution. Apply updates only after a successful result. This source excerpt shows the corresponding application statement."
+    },
+    {
+      "number": 10,
+      "title": "Remove an obsolete task",
+      "source": "src/tracker.ts",
+      "code": "if (input.status === \"deleted\") {\n        this.tasks.delete(id);\n        Object.assign(change, {\n          outcome: \"confirmed\",\n          taskId: id,\n          status: \"deleted\",\n        });\n        return;\n      }",
+      "language": "typescript",
+      "explanation": "Successful deletion removes the task from the map and progress denominator. Keep the confirmed deletion in history.",
+      "firstLine": 61,
+      "lastLine": 69,
+      "anchors": [
+        "if (input.status === \"deleted\") {"
+      ],
+      "sourceSHA256": "6e540e4c72d530cd63333ca59ed172045b8b9725821a6c7438b28ece66a35737",
+      "narration": "Step 10. Successful deletion removes the task from the map and progress denominator. Keep the confirmed deletion in history. This source excerpt shows the corresponding application statement."
+    },
+    {
+      "number": 11,
+      "title": "Count confirmed progress",
+      "source": "src/tracker.ts",
+      "code": "completed: tasks.filter((t) => t.status === \"completed\").length,\n      inProgress: tasks.filter((t) => t.status === \"in_progress\").length,\n      pendingCalls: this.calls.size,\n      changes: this.changes.map((c) => ({ ...c })),\n    };",
+      "language": "typescript",
+      "explanation": "Count completed and active tasks from the confirmed snapshot. Pending tool requests are reported separately.",
+      "firstLine": 106,
+      "lastLine": 110,
+      "anchors": [
+        "completed: tasks.filter((t) => t.status === \"completed\").length,"
+      ],
+      "sourceSHA256": "6e540e4c72d530cd63333ca59ed172045b8b9725821a6c7438b28ece66a35737",
+      "narration": "Step 11. Count completed and active tasks from the confirmed snapshot. Pending tool requests are reported separately. This source excerpt shows the corresponding application statement."
+    },
+    {
+      "number": 12,
+      "title": "Render active work labels",
+      "source": "src/client.ts",
+      "code": "const label =\n      t.status === \"in_progress\" && t.activeForm ? t.activeForm : t.subject;\n    item.textContent = `${icon} ${label}`;\n    const meta = document.createElement(\"p\");\n    meta.className = \"meta\";\n    meta.textContent = `Task ${t.id} \u00b7 ${t.status}`;\n    item.append(meta);",
+      "language": "typescript",
+      "explanation": "Show activeForm only while in_progress; use the subject otherwise. Build browser text nodes so task labels cannot inject HTML.",
+      "firstLine": 25,
+      "lastLine": 31,
+      "anchors": [
+        "const label ="
+      ],
+      "sourceSHA256": "df7cfd6f25b2cfe31a29ce9afd86cf6d16dbc332b9b20626b52cf05817e5af1a",
+      "narration": "Step 12. Show activeForm only while in_progress; use the subject otherwise. Build browser text nodes so task labels cannot inject HTML. This source excerpt shows the corresponding application statement."
+    },
+    {
+      "number": 13,
+      "title": "Inspect actual work and cleanup",
+      "source": "src/agent.ts",
+      "code": "const inspected = await workspace.inspect();\n    const evidence: Evidence = {\n      mode: c.mode,\n      progress: tracker.snapshot(),\n      snapshots,\n      discoveredTools,\n      result,\n      exception,\n      nativeErrors,",
+      "language": "typescript",
+      "explanation": "Read the actual bounded website files and fixture before emitting evidence. The finally block cleans only the verified temporary run directory.",
+      "firstLine": 240,
+      "lastLine": 248,
+      "anchors": [
+        "const inspected = await workspace.inspect();"
+      ],
+      "sourceSHA256": "c3e454f9aa02da0f6afe4682c576ed336de05d5d62e1ada6ee538d1b6722575f",
+      "narration": "Step 13. Read the actual bounded website files and fixture before emitting evidence. The finally block cleans only the verified temporary run directory. This source excerpt shows the corresponding application statement."
+    }
+  ]
+}
